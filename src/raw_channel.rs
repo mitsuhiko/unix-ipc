@@ -147,8 +147,8 @@ impl RawReceiver {
                 unsafe { CMSG_SPACE(mem::size_of::<RawFd>() as c_uint) * fd_count as u32 };
             let mut cmsgspace = vec![0u8; msgspace_size as usize];
 
-            let msg = recvmsg(self.fd, &iov, Some(&mut cmsgspace), MSG_FLAGS)
-                .map_err(nix_as_io_error)?;
+            let msg =
+                recvmsg(self.fd, &iov, Some(&mut cmsgspace), MSG_FLAGS).map_err(nix_as_io_error)?;
 
             for cmsg in msg.cmsgs() {
                 if let ControlMessageOwned::ScmRights(fds) = cmsg {
