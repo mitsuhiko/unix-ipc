@@ -136,6 +136,10 @@ impl RawReceiver {
                 (old, None) => old,
             };
 
+            if msg.bytes == 0 {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "couldn't read"));
+            }
+
             pos += msg.bytes;
             if pos >= buf.len() {
                 return Ok((pos, fds));
@@ -166,20 +170,23 @@ impl RawSender {
         let mut pos = 0;
         loop {
             let iov = [IoVec::from_slice(&data[pos..])];
-            if !fds.is_empty() {
-                pos += sendmsg(
+            let sent = if !fds.is_empty() {
+                sendmsg(
                     self.fd,
                     &iov,
                     &[ControlMessage::ScmRights(fds)],
                     MsgFlags::empty(),
                     None,
                 )
-                .map_err(nix_as_io_error)?;
-                fds = &[][..];
+                .map_err(nix_as_io_error)?
             } else {
-                pos += sendmsg(self.fd, &iov, &[], MsgFlags::empty(), None)
-                    .map_err(nix_as_io_error)?;
+                sendmsg(self.fd, &iov, &[], MsgFlags::empty(), None).map_err(nix_as_io_error)?
+            };
+            if sent == 0 {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "could not send"));
             }
+            pos += sent;
+            fds = &[][..];
             if pos >= data.len() {
                 return Ok(pos);
             }
