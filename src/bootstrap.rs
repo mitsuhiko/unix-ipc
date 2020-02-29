@@ -10,6 +10,10 @@ use std::path::{Path, PathBuf};
 use crate::typed_channel::Sender;
 
 /// A bootstrap helper.
+///
+/// This creates a unix socket that is linked to the file system so
+/// that a [`Receiver`](struct.Receiver.html) can connect to it.  It
+/// lets you send one or more messages to the connected receiver.
 #[derive(Debug)]
 pub struct Bootstrapper<T> {
     listener: UnixListener,
