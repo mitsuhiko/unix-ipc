@@ -3,6 +3,15 @@ name = "unix-ipc"
 version = "0.1.0"
 authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
 edition = "2018"
+license = "MIT/Apache-2.0"
+description = "A minimal abstraction for IPC via unix sockets."
+homepage = "https://github.com/mitsuhiko/unix-ipc"
+repository = "https://github.com/mitsuhiko/unix-ipc"
+keywords = ["ipc", "unix-socket", "subprocess"]
+readme = "README.md"
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 default = ["serde", "bootstrap", "bootstrap-simple"]
