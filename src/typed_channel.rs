@@ -101,7 +101,7 @@ impl<T: Serialize + DeserializeOwned> Receiver<T> {
     /// Receives a structured message from the socket.
     pub fn recv(&self) -> io::Result<T> {
         let (buf, fds) = self.raw_receiver.recv()?;
-        deserialize(&buf, fds.as_deref().unwrap_or_default())
+        deserialize::<(T, bool)>(&buf, fds.as_deref().unwrap_or_default()).map(|x| x.0)
     }
 }
 
@@ -113,7 +113,9 @@ impl<T: Serialize + DeserializeOwned> Sender<T> {
 
     /// Receives a structured message from the socket.
     pub fn send(&self, s: T) -> io::Result<()> {
-        let (payload, fds) = serialize(s)?;
+        // we always serialize a dummy bool at the end so that the message
+        // will not be empty because of zero sized types.
+        let (payload, fds) = serialize((s, true))?;
         self.raw_sender.send(&payload, &fds)?;
         Ok(())
     }
@@ -209,6 +211,22 @@ fn test_conversion() {
 
     let b = std::thread::spawn(move || {
         assert_eq!(rx.recv().unwrap(), true);
+    });
+
+    a.join().unwrap();
+    b.join().unwrap();
+}
+
+#[test]
+fn test_zero_sized_type() {
+    let (tx, rx) = channel::<()>().unwrap();
+
+    let a = std::thread::spawn(move || {
+        tx.send(()).unwrap();
+    });
+
+    let b = std::thread::spawn(move || {
+        rx.recv().unwrap();
     });
 
     a.join().unwrap();
