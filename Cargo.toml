@@ -9,6 +9,7 @@ homepage = "https://github.com/mitsuhiko/unix-ipc"
 repository = "https://github.com/mitsuhiko/unix-ipc"
 keywords = ["ipc", "unix-socket", "subprocess"]
 readme = "README.md"
+autoexamples = true
 
 [package.metadata.docs.rs]
 all-features = true
@@ -25,3 +26,11 @@ nix = "0.17.0"
 serde_ = { package = "serde", version = "1.0.104", features = ["derive"], optional = true }
 bincode = { version = "1.2.1", optional = true }
 rand = { version = "0.7.3", optional = true }
+
+[[example]]
+name = "proc"
+required-features = ["serde", "bootstrap", "bootstrap-simple"]
+
+[[example]]
+name = "simple"
+required-features = ["serde"]

@@ -37,10 +37,10 @@ checkall:
 .PHONY: checkall
 
 testall:
-	carog test --all-features
-	carog test --no-default-features
+	cargo test --all-features
+	cargo test --no-default-features --tests
 .PHONY: testall
 
 readme:
-	cargo readme | perl -p -e "s/\]\(([^\/]+)\)/](https:\/\/docs.rs\/procspawn\/latest\/procspawn\/\\1)/" > README.md
+	cargo readme | perl -p -e "s/\]\(([^\/]+)\)/](https:\/\/docs.rs\/unix-ipc\/latest\/unix-ipc\/\\1)/" > README.md
 .PHONY: readme

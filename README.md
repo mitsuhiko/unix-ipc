@@ -4,6 +4,13 @@ This crate implements a minimal abstraction over UNIX domain sockets for
 the purpose of IPC.  It lets you send both file handles and rust objects
 between processes.
 
+## How it works
+
+This uses [serde](https://serde.rs/) to serialize data over unix sockets
+via [bincode](https://github.com/servo/bincode).  Thanks to the
+[`Handle`](https://docs.rs/unix-ipc/latest/unix-ipc/struct.Handle.html) abstraction you can also send any object
+across that is convertable into a unix file handle.
+
 ## Example
 
 ```rust
@@ -20,29 +27,27 @@ pub enum Task {
     Shutdown,
 }
 
-fn main() {
-    if let Ok(path) = env::var(ENV_VAR) {
-        let receiver = Receiver::<Task>::connect(path).unwrap();
-        loop {
-            match receiver.recv().unwrap() {
-                Task::Sum(values, tx) => {
-                    tx.send(values.into_iter().sum::<i64>()).unwrap();
-                }
-                Task::Shutdown => break,
+if let Ok(path) = env::var(ENV_VAR) {
+    let receiver = Receiver::<Task>::connect(path).unwrap();
+    loop {
+        match receiver.recv().unwrap() {
+            Task::Sum(values, tx) => {
+                tx.send(values.into_iter().sum::<i64>()).unwrap();
             }
+            Task::Shutdown => break,
         }
-    } else {
-        let bootstrapper = Bootstrapper::new().unwrap();
-        let mut child = process::Command::new(env::current_exe().unwrap())
-            .env(ENV_VAR, bootstrapper.path())
-            .spawn()
-            .unwrap();
-
-        let (tx, rx) = channel().unwrap();
-        bootstrapper.send(Task::Sum(vec![23, 42], tx)).unwrap();
-        println!("sum: {}", rx.recv().unwrap());
-        bootstrapper.send(Task::Shutdown).unwrap();
     }
+} else {
+    let bootstrapper = Bootstrapper::new().unwrap();
+    let mut child = process::Command::new(env::current_exe().unwrap())
+        .env(ENV_VAR, bootstrapper.path())
+        .spawn()
+        .unwrap();
+
+    let (tx, rx) = channel().unwrap();
+    bootstrapper.send(Task::Sum(vec![23, 42], tx)).unwrap();
+    println!("sum: {}", rx.recv().unwrap());
+    bootstrapper.send(Task::Shutdown).unwrap();
 }
 ```
 
@@ -56,3 +61,5 @@ the raw types are available.
 * `bootstrap`: adds the `Bootstrapper` type.
 * `bootstrap-simple`: adds the default `new` constructor to the
   bootstrapper.
+
+License: MIT/Apache-2.0
