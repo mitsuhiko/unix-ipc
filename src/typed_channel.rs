@@ -1,4 +1,5 @@
 use std::io;
+use std::fmt;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -10,17 +11,31 @@ use crate::raw_channel::{RawReceiver, RawSender};
 use crate::serde::{deserialize, serialize};
 
 /// A typed receiver.
-#[derive(Debug)]
 pub struct Receiver<T> {
     raw_receiver: RawReceiver,
     _marker: std::marker::PhantomData<T>,
 }
 
 /// A typed sender.
-#[derive(Debug)]
 pub struct Sender<T> {
     raw_sender: RawSender,
     _marker: std::marker::PhantomData<T>,
+}
+
+impl<T> fmt::Debug for Receiver<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Receiver")
+            .field("fd", &self.as_raw_fd())
+            .finish()
+    }
+}
+
+impl<T> fmt::Debug for Sender<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Sender")
+            .field("fd", &self.as_raw_fd())
+            .finish()
+    }
 }
 
 macro_rules! fd_impl {
@@ -43,13 +58,13 @@ macro_rules! fd_impl {
             }
         }
 
-        impl<T: Serialize + DeserializeOwned> IntoRawFd for $ty {
+        impl<T> IntoRawFd for $ty {
             fn into_raw_fd(self) -> RawFd {
                 self.$field.into_raw_fd()
             }
         }
 
-        impl<T: Serialize + DeserializeOwned> AsRawFd for $ty {
+        impl<T> AsRawFd for $ty {
             fn as_raw_fd(&self) -> RawFd {
                 self.$field.as_raw_fd()
             }
