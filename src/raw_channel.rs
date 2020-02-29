@@ -224,3 +224,32 @@ fn test_basic() {
     server.join().unwrap();
     client.join().unwrap();
 }
+
+#[test]
+fn test_large_buffer() {
+    use std::fmt::Write;
+
+    let path = "/tmp/unix-ipc-test-socket-large-buf.sock";
+    let mut buf = String::new();
+    for x in 0..10000 {
+        write!(&mut buf, "{}", x).ok();
+    }
+
+    let server_buf = buf.clone();
+    let server = std::thread::spawn(move || {
+        let sender = RawSender::bind_and_accept(path).unwrap();
+        sender.send(server_buf.as_bytes(), &[][..]).unwrap();
+    });
+
+    std::thread::sleep(std::time::Duration::from_millis(10));
+
+    let client = std::thread::spawn(move || {
+        let c = RawReceiver::connect(path).unwrap();
+        let (bytes, fds) = c.recv().unwrap();
+        assert_eq!(bytes, buf.as_bytes());
+        assert_eq!(fds, None);
+    });
+
+    server.join().unwrap();
+    client.join().unwrap();
+}
