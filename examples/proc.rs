@@ -26,9 +26,8 @@ fn main() {
         }
     } else {
         let bootstrapper = Bootstrapper::new().unwrap();
-        let path = bootstrapper.path().to_owned();
         let mut child = process::Command::new(env::current_exe().unwrap())
-            .env(ENV_VAR, path)
+            .env(ENV_VAR, bootstrapper.path())
             .spawn()
             .unwrap();
 

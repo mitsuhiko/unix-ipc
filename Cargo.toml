@@ -5,7 +5,7 @@ authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
 edition = "2018"
 
 [features]
-default = ["serde", "bootstrap"]
+default = ["serde", "bootstrap", "bootstrap-simple"]
 serde = ["serde_", "bincode"]
 bootstrap = ["serde"]
 bootstrap-simple = ["bootstrap", "rand"]
