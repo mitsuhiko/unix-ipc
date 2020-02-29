@@ -11,13 +11,18 @@ thread_local! {
     static IPC_FDS: RefCell<Vec<Vec<RawFd>>> = RefCell::new(Vec::new());
 }
 
-enum HandleInner<F> {
-    Object(F),
-    Raw(RawFd),
-}
-
 /// Can transfer a unix file handle across processes.
-pub struct Handle<F>(Mutex<MaybeUninit<HandleInner<F>>>);
+///
+/// The basic requirement is that you have an object that can be converted
+/// into a raw file handle and back.  This for instance is the case for
+/// regular file objects, sockets and many more things.
+///
+/// Once the handle has been serialized the handle no longer lets you
+/// extract the value contained in it.
+///
+/// For customizing the serialization of libraries the
+/// [`HandleRef`](struct.HandleRef.html) object should be used instead.
+pub struct Handle<F>(Mutex<MaybeUninit<Option<F>>>);
 
 /// A raw reference to a handle.
 ///
@@ -31,28 +36,28 @@ impl<F: FromRawFd + IntoRawFd> Handle<F> {
         f.into()
     }
 
-    fn as_raw_fd(&self) -> RawFd {
+    fn extract_raw_fd(&self) -> RawFd {
         let mut guard = self.0.lock().unwrap();
         let raw_fd = match unsafe { guard.as_ptr().read() } {
-            HandleInner::Object(obj) => obj.into_raw_fd(),
-            HandleInner::Raw(raw_fd) => raw_fd,
+            Some(obj) => obj.into_raw_fd(),
+            None => panic!("cannot serialize handle twice"),
         };
-        *guard = MaybeUninit::new(HandleInner::Raw(raw_fd));
+        *guard = MaybeUninit::new(None);
         raw_fd
     }
 
     /// Extracts the internal value.
     pub fn into_inner(self) -> F {
         match unsafe { self.0.lock().unwrap().as_ptr().read() } {
-            HandleInner::Object(obj) => obj,
-            HandleInner::Raw(_) => panic!("already serialized"),
+            Some(obj) => obj,
+            None => panic!("handle was moved"),
         }
     }
 }
 
 impl<F: FromRawFd + IntoRawFd> From<F> for Handle<F> {
     fn from(f: F) -> Self {
-        Handle(Mutex::new(MaybeUninit::new(HandleInner::Object(f))))
+        Handle(Mutex::new(MaybeUninit::new(Some(f))))
     }
 }
 
@@ -76,7 +81,7 @@ impl<F: FromRawFd + IntoRawFd> Serialize for Handle<F> {
     where
         S: ser::Serializer,
     {
-        HandleRef(self.as_raw_fd()).serialize(serializer)
+        HandleRef(self.extract_raw_fd()).serialize(serializer)
     }
 }
 
@@ -89,7 +94,7 @@ impl<'de, F: FromRawFd + IntoRawFd> Deserialize<'de> for Handle<F> {
             let idx = u32::deserialize(deserializer)?;
             let fd = lookup_fd(idx).ok_or_else(|| de::Error::custom("fd not found in mapping"))?;
             unsafe {
-                Ok(Handle(Mutex::new(MaybeUninit::new(HandleInner::Object(
+                Ok(Handle(Mutex::new(MaybeUninit::new(Some(
                     FromRawFd::from_raw_fd(fd),
                 )))))
             }
