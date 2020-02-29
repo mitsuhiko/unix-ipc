@@ -87,42 +87,61 @@ impl RawReceiver {
     /// Receives raw bytes from the socket.
     pub fn recv(&self) -> io::Result<(Vec<u8>, Option<Vec<RawFd>>)> {
         let mut header = MsgHeader::default();
-        let buf = unsafe {
-            slice::from_raw_parts_mut(
-                (&mut header as *mut _) as *mut u8,
-                mem::size_of_val(&header),
-            )
-        };
-        let iov = [IoVec::from_mut_slice(buf)];
-        self.recv_into_iovec(&iov, 0)?;
+        self.recv_impl(
+            unsafe {
+                slice::from_raw_parts_mut(
+                    (&mut header as *mut _) as *mut u8,
+                    mem::size_of_val(&header),
+                )
+            },
+            0,
+        )?;
 
         let mut buf = vec![0u8; header.payload_len as usize];
-        let iov = [IoVec::from_mut_slice(&mut buf[..])];
-        let (bytes, fds) = self.recv_into_iovec(&iov, header.fd_count as usize)?;
-        buf.truncate(bytes);
+        let (_, fds) = self.recv_impl(&mut buf, header.fd_count as usize)?;
         Ok((buf, fds))
     }
 
-    fn recv_into_iovec(
+    fn recv_impl(
         &self,
-        iov: &[IoVec<&mut [u8]>],
+        buf: &mut [u8],
         fd_count: usize,
     ) -> io::Result<(usize, Option<Vec<RawFd>>)> {
-        let mut rfds = None;
-        let msgspace_size =
-            unsafe { CMSG_SPACE(mem::size_of::<RawFd>() as c_uint) * fd_count as u32 };
-        let mut cmsgspace = vec![0u8; msgspace_size as usize];
+        let mut pos = 0;
+        let mut fds = None;
 
-        let msg = recvmsg(self.fd, iov, Some(&mut cmsgspace), MsgFlags::empty())
-            .map_err(nix_as_io_error)?;
-        for cmsg in msg.cmsgs() {
-            if let ControlMessageOwned::ScmRights(fds) = cmsg {
-                if !fds.is_empty() {
-                    rfds = Some(fds);
+        loop {
+            let iov = [IoVec::from_mut_slice(&mut buf[pos..])];
+            let mut new_fds = None;
+            let msgspace_size =
+                unsafe { CMSG_SPACE(mem::size_of::<RawFd>() as c_uint) * fd_count as u32 };
+            let mut cmsgspace = vec![0u8; msgspace_size as usize];
+
+            let msg = recvmsg(self.fd, &iov, Some(&mut cmsgspace), MsgFlags::empty())
+                .map_err(nix_as_io_error)?;
+
+            for cmsg in msg.cmsgs() {
+                if let ControlMessageOwned::ScmRights(fds) = cmsg {
+                    if !fds.is_empty() {
+                        new_fds = Some(fds);
+                    }
                 }
             }
+
+            fds = match (fds, new_fds) {
+                (None, Some(new)) => Some(new),
+                (Some(mut old), Some(new)) => {
+                    old.extend(new);
+                    Some(old)
+                }
+                (old, None) => old,
+            };
+
+            pos += msg.bytes;
+            if pos >= buf.len() {
+                return Ok((pos, fds));
+            }
         }
-        Ok((msg.bytes, rfds))
     }
 }
 
@@ -142,30 +161,38 @@ impl RawSender {
             payload_len: data.len() as u32,
             fd_count: fds.len() as u32,
         };
-        let iov = [IoVec::from_slice(unsafe {
+        let header_slice = unsafe {
             slice::from_raw_parts(
                 (&header as *const _) as *const u8,
                 mem::size_of_val(&header),
             )
-        })];
-        self.send_iovec(&iov[..], &[][..])?;
+        };
 
-        let iov = [IoVec::from_slice(data)];
-        self.send_iovec(&iov[..], fds)
+        self.send_impl(&header_slice, &[][..])?;
+        self.send_impl(&data, fds)
     }
 
-    fn send_iovec(&self, iov: &[IoVec<&[u8]>], fds: &[RawFd]) -> io::Result<usize> {
-        if !fds.is_empty() {
-            sendmsg(
-                self.fd,
-                iov,
-                &[ControlMessage::ScmRights(fds)],
-                MsgFlags::empty(),
-                None,
-            )
-            .map_err(nix_as_io_error)
-        } else {
-            sendmsg(self.fd, iov, &[], MsgFlags::empty(), None).map_err(nix_as_io_error)
+    fn send_impl(&self, data: &[u8], mut fds: &[RawFd]) -> io::Result<usize> {
+        let mut pos = 0;
+        loop {
+            let iov = [IoVec::from_slice(&data[pos..])];
+            if !fds.is_empty() {
+                pos += sendmsg(
+                    self.fd,
+                    &iov,
+                    &[ControlMessage::ScmRights(fds)],
+                    MsgFlags::empty(),
+                    None,
+                )
+                .map_err(nix_as_io_error)?;
+                fds = &[][..];
+            } else {
+                pos += sendmsg(self.fd, &iov, &[], MsgFlags::empty(), None)
+                    .map_err(nix_as_io_error)?;
+            }
+            if pos >= data.len() {
+                return Ok(pos);
+            }
         }
     }
 }

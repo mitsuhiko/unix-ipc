@@ -136,6 +136,9 @@ fn lookup_fd(idx: u32) -> Option<RawFd> {
 }
 
 /// Checks if serde is in IPC mode.
+///
+/// This can be used to customize the behavior of serialization/deserialization
+/// implementations for the use with unix-ipc.
 pub fn serde_in_ipc_mode() -> bool {
     IPC_FDS.with(|x| !x.borrow().is_empty())
 }
@@ -149,6 +152,10 @@ fn bincode_to_io_error(err: bincode::Error) -> io::Error {
 }
 
 /// Serializes something for IPC communication.
+///
+/// This uses bincode for serialization.  Because UNIX sockets require that
+/// file descriptors are transmitted separately they are accumulated in a
+/// separate buffer.
 pub fn serialize<S: Serialize>(s: S) -> io::Result<(Vec<u8>, Vec<RawFd>)> {
     let mut fds = Vec::new();
     let mut out = Vec::new();
@@ -158,6 +165,9 @@ pub fn serialize<S: Serialize>(s: S) -> io::Result<(Vec<u8>, Vec<RawFd>)> {
 }
 
 /// Deserializes something for IPC communication.
+///
+/// File descriptors need to be provided for deserialization if handleds are
+/// involved.
 pub fn deserialize<D: DeserializeOwned>(bytes: &[u8], fds: &[RawFd]) -> io::Result<D> {
     let mut fds = fds.to_owned();
     let result =
