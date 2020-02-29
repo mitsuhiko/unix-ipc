@@ -1,0 +1,15 @@
+[package]
+name = "unix-ipc"
+version = "0.1.0"
+authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
+edition = "2018"
+
+[features]
+default = ["serde"]
+serde = ["serde_", "bincode"]
+
+[dependencies]
+libc = "0.2.67"
+nix = "0.17.0"
+serde_ = { package = "serde", version = "1.0.104", features = ["derive"], optional = true }
+bincode = { version = "1.2.1", optional = true }
