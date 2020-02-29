@@ -36,9 +36,7 @@ fn main() {
         println!("result: {}", rx.recv().unwrap());
 
         let (tx, rx) = channel().unwrap();
-        bootstrapper
-            .send(Task::Sum((0..10).collect(), tx))
-            .unwrap();
+        bootstrapper.send(Task::Sum((0..10).collect(), tx)).unwrap();
         println!("result: {}", rx.recv().unwrap());
 
         bootstrapper.send(Task::Shutdown).unwrap();

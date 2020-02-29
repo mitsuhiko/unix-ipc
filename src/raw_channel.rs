@@ -1,8 +1,7 @@
-use std::fs;
 use std::io;
 use std::mem;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
-use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::slice;
 
@@ -146,15 +145,6 @@ impl RawReceiver {
 }
 
 impl RawSender {
-    /// Opens a new unix socket and block until someone connects.
-    pub fn bind_and_accept<P: AsRef<Path>>(p: P) -> io::Result<RawSender> {
-        fs::remove_file(&p).ok();
-        let listener = UnixListener::bind(&p)?;
-        let (sock, _) = listener.accept()?;
-        let sender = unsafe { RawSender::from_raw_fd(sock.into_raw_fd()) };
-        Ok(sender)
-    }
-
     /// Sends raw bytes and fds.
     pub fn send(&self, data: &[u8], fds: &[RawFd]) -> io::Result<usize> {
         let header = MsgHeader {
@@ -205,18 +195,16 @@ impl Drop for RawReceiver {
 
 #[test]
 fn test_basic() {
-    let path = "/tmp/unix-ipc-test-socket-raw.sock";
+    let (tx, rx) = raw_channel().unwrap();
 
     let server = std::thread::spawn(move || {
-        let sender = RawSender::bind_and_accept(path).unwrap();
-        sender.send(b"Hello World!", &[][..]).unwrap();
+        tx.send(b"Hello World!", &[][..]).unwrap();
     });
 
     std::thread::sleep(std::time::Duration::from_millis(10));
 
     let client = std::thread::spawn(move || {
-        let c = RawReceiver::connect(path).unwrap();
-        let (bytes, fds) = c.recv().unwrap();
+        let (bytes, fds) = rx.recv().unwrap();
         assert_eq!(bytes, b"Hello World!");
         assert_eq!(fds, None);
     });
@@ -229,23 +217,22 @@ fn test_basic() {
 fn test_large_buffer() {
     use std::fmt::Write;
 
-    let path = "/tmp/unix-ipc-test-socket-large-buf.sock";
     let mut buf = String::new();
     for x in 0..10000 {
         write!(&mut buf, "{}", x).ok();
     }
 
+    let (tx, rx) = raw_channel().unwrap();
+
     let server_buf = buf.clone();
     let server = std::thread::spawn(move || {
-        let sender = RawSender::bind_and_accept(path).unwrap();
-        sender.send(server_buf.as_bytes(), &[][..]).unwrap();
+        tx.send(server_buf.as_bytes(), &[][..]).unwrap();
     });
 
     std::thread::sleep(std::time::Duration::from_millis(10));
 
     let client = std::thread::spawn(move || {
-        let c = RawReceiver::connect(path).unwrap();
-        let (bytes, fds) = c.recv().unwrap();
+        let (bytes, fds) = rx.recv().unwrap();
         assert_eq!(bytes, buf.as_bytes());
         assert_eq!(fds, None);
     });

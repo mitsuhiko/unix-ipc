@@ -105,11 +105,6 @@ impl<T: Serialize + DeserializeOwned> Receiver<T> {
 }
 
 impl<T: Serialize + DeserializeOwned> Sender<T> {
-    /// Opens a new unix socket and block until someone connects.
-    pub fn bind_and_accept<P: AsRef<Path>>(p: P) -> io::Result<Sender<T>> {
-        RawSender::bind_and_accept(p).map(Into::into)
-    }
-
     /// Converts the typed sender into a raw one.
     pub fn into_raw_sender(self) -> RawSender {
         self.raw_sender
@@ -129,18 +124,17 @@ fn test_basic() {
     use std::io::Read;
 
     let f = Handle::from(std::fs::File::open("src/serde.rs").unwrap());
-    let path = "/tmp/unix-ipc-test-socket.sock";
+
+    let (tx, rx) = channel().unwrap();
 
     let server = std::thread::spawn(move || {
-        let sender = Sender::bind_and_accept(path).unwrap();
-        sender.send(f).unwrap();
+        tx.send(f).unwrap();
     });
 
     std::thread::sleep(std::time::Duration::from_millis(10));
 
     let client = std::thread::spawn(move || {
-        let c = Receiver::<Handle<std::fs::File>>::connect(path).unwrap();
-        let f = c.recv().unwrap();
+        let f = rx.recv().unwrap();
 
         let mut out = Vec::new();
         f.into_inner().read_to_end(&mut out).unwrap();
@@ -157,13 +151,11 @@ fn test_send_channel() {
     use std::fs::File;
     use std::io::Read;
 
-    let path = "/tmp/unix-ipc-test-socket-channel.sock";
-
+    let (tx, rx) = channel().unwrap();
     let (sender, receiver) = channel::<Handle<File>>().unwrap();
 
     let server = std::thread::spawn(move || {
-        let c = Sender::bind_and_accept(path).unwrap();
-        c.send(sender).unwrap();
+        tx.send(sender).unwrap();
         let handle = receiver.recv().unwrap();
         let mut file = handle.into_inner();
         let mut out = Vec::new();
@@ -174,8 +166,7 @@ fn test_send_channel() {
     std::thread::sleep(std::time::Duration::from_millis(10));
 
     let client = std::thread::spawn(move || {
-        let c = Receiver::<Sender<Handle<File>>>::connect(path).unwrap();
-        let sender = c.recv().unwrap();
+        let sender = rx.recv().unwrap();
         sender
             .send(Handle::from(File::open("src/serde.rs").unwrap()))
             .unwrap();
