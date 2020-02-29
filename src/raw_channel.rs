@@ -13,11 +13,13 @@ use nix::sys::uio::IoVec;
 use nix::unistd;
 
 /// A raw receiver.
+#[derive(Debug)]
 pub struct RawReceiver {
     fd: RawFd,
 }
 
 /// A raw sender.
+#[derive(Debug)]
 pub struct RawSender {
     fd: RawFd,
 }

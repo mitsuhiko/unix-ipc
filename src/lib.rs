@@ -3,12 +3,17 @@
 //! between processes.
 mod raw_channel;
 
+#[cfg(feature = "bootstrap")]
+mod bootstrap;
 #[cfg(feature = "serde")]
 mod serde;
 #[cfg(feature = "serde")]
 mod typed_channel;
 
 pub use self::raw_channel::*;
+
+#[cfg(feature = "bootstrap")]
+pub use self::bootstrap::*;
 
 #[cfg(feature = "serde")]
 pub use self::{serde::*, typed_channel::*};

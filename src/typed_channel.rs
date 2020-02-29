@@ -10,12 +10,14 @@ use crate::raw_channel::{RawReceiver, RawSender};
 use crate::serde::{deserialize, serialize};
 
 /// A typed receiver.
+#[derive(Debug)]
 pub struct Receiver<T> {
     raw_receiver: RawReceiver,
     _marker: std::marker::PhantomData<T>,
 }
 
 /// A typed sender.
+#[derive(Debug)]
 pub struct Sender<T> {
     raw_sender: RawSender,
     _marker: std::marker::PhantomData<T>,
