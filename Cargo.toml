@@ -7,7 +7,8 @@ edition = "2018"
 [features]
 default = ["serde", "bootstrap"]
 serde = ["serde_", "bincode"]
-bootstrap = ["serde", "rand"]
+bootstrap = ["serde"]
+bootstrap-simple = ["bootstrap", "rand"]
 
 [dependencies]
 libc = "0.2.67"

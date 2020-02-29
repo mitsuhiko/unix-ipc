@@ -1,12 +1,12 @@
+use serde_::{Deserialize, Serialize};
 use std::env;
 use std::process;
-use unix_ipc::{Bootstrapper, Sender, Receiver, channel};
-use serde_::{Serialize, Deserialize};
+use unix_ipc::{channel, Bootstrapper, Receiver, Sender};
 
 const ENV_VAR: &str = "PROC_CONNECT_TO";
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(crate="serde_")]
+#[serde(crate = "serde_")]
 pub enum Task {
     Sum(Vec<i64>, Sender<i64>),
     Shutdown,
@@ -21,7 +21,7 @@ fn main() {
                 Task::Sum(values, tx) => {
                     tx.send(values.into_iter().sum::<i64>()).unwrap();
                 }
-                Task::Shutdown => break
+                Task::Shutdown => break,
             }
         }
     } else {

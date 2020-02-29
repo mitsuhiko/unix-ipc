@@ -1,14 +1,11 @@
+use serde_::de::DeserializeOwned;
+use serde_::Serialize;
 use std::cell::RefCell;
 use std::fs;
 use std::io;
 use std::os::unix::io::{FromRawFd, IntoRawFd};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use rand::{thread_rng, RngCore};
-use serde_::de::DeserializeOwned;
-use serde_::Serialize;
 
 use crate::typed_channel::Sender;
 
@@ -22,7 +19,11 @@ pub struct Bootstrapper<T> {
 
 impl<T: Serialize + DeserializeOwned> Bootstrapper<T> {
     /// Creates a bootstrapper at a random socket in `/tmp`.
+    #[cfg(feature = "bootstrap-simple")]
     pub fn new() -> io::Result<Bootstrapper<T>> {
+        use rand::{thread_rng, RngCore};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
         let mut dir = std::env::temp_dir();
         let mut rng = thread_rng();
         let now = SystemTime::now();
@@ -92,7 +93,7 @@ fn test_bootstrap() {
 
 #[test]
 fn test_bootstrap_reverse() {
-    use crate::{Receiver, channel};
+    use crate::{channel, Receiver};
 
     let bootstrapper = Bootstrapper::new().unwrap();
     let path = bootstrapper.path().to_owned();

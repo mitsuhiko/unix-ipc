@@ -1,8 +1,8 @@
-use unix_ipc::{Bootstrapper, Sender, Receiver, channel};
-use serde_::{Serialize, Deserialize};
+use serde_::{Deserialize, Serialize};
+use unix_ipc::{channel, Bootstrapper, Receiver, Sender};
 
 #[derive(Serialize, Deserialize)]
-#[serde(crate="serde_")]
+#[serde(crate = "serde_")]
 pub enum Task {
     Sum(Vec<i64>, Sender<i64>),
     Shutdown,
@@ -20,7 +20,7 @@ fn main() {
                 Task::Sum(values, tx) => {
                     tx.send(values.into_iter().sum::<i64>()).unwrap();
                 }
-                Task::Shutdown => break
+                Task::Shutdown => break,
             }
         }
     });

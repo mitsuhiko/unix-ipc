@@ -1,5 +1,5 @@
-use std::io;
 use std::fmt;
+use std::io;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
