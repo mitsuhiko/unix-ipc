@@ -89,3 +89,21 @@ fn test_bootstrap() {
 
     handle.join().unwrap();
 }
+
+#[test]
+fn test_bootstrap_reverse() {
+    use crate::{Receiver, channel};
+
+    let bootstrapper = Bootstrapper::new().unwrap();
+    let path = bootstrapper.path().to_owned();
+    let (tx, rx) = channel::<u32>().unwrap();
+
+    std::thread::spawn(move || {
+        let receiver = Receiver::<Sender<u32>>::connect(path).unwrap();
+        let result_sender = receiver.recv().unwrap();
+        result_sender.send(42 + 23).unwrap();
+    });
+
+    bootstrapper.send(tx).unwrap();
+    assert_eq!(rx.recv().unwrap(), 65);
+}
