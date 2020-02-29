@@ -12,6 +12,12 @@ use nix::sys::socket::{
 use nix::sys::uio::IoVec;
 use nix::unistd;
 
+#[cfg(target_os = "linux")]
+const MSG_FLAGS: MsgFlags = MsgFlags::MSG_CMSG_CLOEXEC;
+
+#[cfg(target_os = "macos")]
+const MSG_FLAGS: MsgFlags = MsgFlags::empty();
+
 /// A raw receiver.
 #[derive(Debug)]
 pub struct RawReceiver {
@@ -141,12 +147,18 @@ impl RawReceiver {
                 unsafe { CMSG_SPACE(mem::size_of::<RawFd>() as c_uint) * fd_count as u32 };
             let mut cmsgspace = vec![0u8; msgspace_size as usize];
 
-            let msg = recvmsg(self.fd, &iov, Some(&mut cmsgspace), MsgFlags::empty())
+            let msg = recvmsg(self.fd, &iov, Some(&mut cmsgspace), MSG_FLAGS)
                 .map_err(nix_as_io_error)?;
 
             for cmsg in msg.cmsgs() {
                 if let ControlMessageOwned::ScmRights(fds) = cmsg {
                     if !fds.is_empty() {
+                        #[cfg(target_os = "macos")]
+                        unsafe {
+                            for &fd in &fds {
+                                libc::ioctl(fd, libc::FIOCLEX);
+                            }
+                        }
                         new_fds = Some(fds);
                     }
                 }
