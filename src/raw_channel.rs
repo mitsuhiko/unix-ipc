@@ -174,7 +174,10 @@ impl RawReceiver {
             };
 
             if msg.bytes == 0 {
-                return Err(io::Error::new(io::ErrorKind::Interrupted, "could not read"));
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "could not read",
+                ));
             }
 
             pos += msg.bytes;
@@ -220,7 +223,7 @@ impl RawSender {
                 sendmsg(self.fd, &iov, &[], MsgFlags::empty(), None).map_err(nix_as_io_error)?
             };
             if sent == 0 {
-                return Err(io::Error::new(io::ErrorKind::Interrupted, "could not send"));
+                return Err(io::Error::new(io::ErrorKind::WriteZero, "could not send"));
             }
             pos += sent;
             fds = &[][..];
