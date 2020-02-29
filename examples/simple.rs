@@ -1,7 +1,7 @@
 use serde_::{Deserialize, Serialize};
 use unix_ipc::{channel, Bootstrapper, Receiver, Sender};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(crate = "serde_")]
 pub enum Task {
     Sum(Vec<i64>, Sender<i64>),
@@ -25,10 +25,12 @@ fn main() {
         }
     });
 
+    println!("make channel 1");
     let (tx, rx) = channel().unwrap();
     bootstrapper.send(Task::Sum(vec![23, 42], tx)).unwrap();
     println!("result: {}", rx.recv().unwrap());
 
+    println!("make channel 2");
     let (tx, rx) = channel().unwrap();
     bootstrapper.send(Task::Sum(vec![1, 2, 3], tx)).unwrap();
     println!("result: {}", rx.recv().unwrap());

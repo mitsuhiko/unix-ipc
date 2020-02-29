@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::io;
-use std::mem::{self, MaybeUninit};
+use std::mem;
 use std::os::unix::io::{FromRawFd, IntoRawFd, RawFd};
 use std::sync::Mutex;
 
@@ -22,7 +22,7 @@ thread_local! {
 ///
 /// For customizing the serialization of libraries the
 /// [`HandleRef`](struct.HandleRef.html) object should be used instead.
-pub struct Handle<F>(Mutex<MaybeUninit<Option<F>>>);
+pub struct Handle<F>(Mutex<Option<F>>);
 
 /// A raw reference to a handle.
 ///
@@ -37,27 +37,23 @@ impl<F: FromRawFd + IntoRawFd> Handle<F> {
     }
 
     fn extract_raw_fd(&self) -> RawFd {
-        let mut guard = self.0.lock().unwrap();
-        let raw_fd = match unsafe { guard.as_ptr().read() } {
-            Some(obj) => obj.into_raw_fd(),
-            None => panic!("cannot serialize handle twice"),
-        };
-        *guard = MaybeUninit::new(None);
-        raw_fd
+        self.0
+            .lock()
+            .unwrap()
+            .take()
+            .map(|x| x.into_raw_fd())
+            .expect("cannot serialize handle twice")
     }
 
     /// Extracts the internal value.
     pub fn into_inner(self) -> F {
-        match unsafe { self.0.lock().unwrap().as_ptr().read() } {
-            Some(obj) => obj,
-            None => panic!("handle was moved"),
-        }
+        self.0.lock().unwrap().take().expect("handle was moved")
     }
 }
 
 impl<F: FromRawFd + IntoRawFd> From<F> for Handle<F> {
     fn from(f: F) -> Self {
-        Handle(Mutex::new(MaybeUninit::new(Some(f))))
+        Handle(Mutex::new(Some(f)))
     }
 }
 
@@ -93,11 +89,7 @@ impl<'de, F: FromRawFd + IntoRawFd> Deserialize<'de> for Handle<F> {
         if serde_in_ipc_mode() {
             let idx = u32::deserialize(deserializer)?;
             let fd = lookup_fd(idx).ok_or_else(|| de::Error::custom("fd not found in mapping"))?;
-            unsafe {
-                Ok(Handle(Mutex::new(MaybeUninit::new(Some(
-                    FromRawFd::from_raw_fd(fd),
-                )))))
-            }
+            unsafe { Ok(Handle(Mutex::new(Some(FromRawFd::from_raw_fd(fd))))) }
         } else {
             Err(de::Error::custom("can only deserialize in ipc mode"))
         }
@@ -183,7 +175,7 @@ macro_rules! implement_handle_serialization {
                 S: $crate::_serde_ref::ser::Serializer,
             {
                 $crate::_serde_ref::Serialize::serialize(
-                    &$crate::HandleRef(std::os::unix::io::AsRawFd::as_raw_fd(self)),
+                    &$crate::HandleRef(self.extract_raw_fd()),
                     serializer,
                 )
             }
@@ -212,7 +204,7 @@ macro_rules! implement_typed_handle_serialization {
                 S: $crate::_serde_ref::ser::Serializer,
             {
                 $crate::_serde_ref::Serialize::serialize(
-                    &$crate::HandleRef(std::os::unix::io::AsRawFd::as_raw_fd(self)),
+                    &$crate::HandleRef(self.extract_raw_fd()),
                     serializer,
                 )
             }

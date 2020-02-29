@@ -4,6 +4,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::slice;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use nix::sys::socket::{
     c_uint, recvmsg, sendmsg, ControlMessage, ControlMessageOwned, MsgFlags, CMSG_SPACE,
@@ -15,12 +16,14 @@ use nix::unistd;
 #[derive(Debug)]
 pub struct RawReceiver {
     fd: RawFd,
+    dead: AtomicBool,
 }
 
 /// A raw sender.
 #[derive(Debug)]
 pub struct RawSender {
     fd: RawFd,
+    dead: AtomicBool,
 }
 
 /// Creates a raw connected channel.
@@ -35,7 +38,7 @@ pub fn raw_channel() -> io::Result<(RawSender, RawReceiver)> {
 }
 
 #[repr(C)]
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct MsgHeader {
     payload_len: u32,
     fd_count: u32,
@@ -43,9 +46,23 @@ struct MsgHeader {
 
 macro_rules! fd_impl {
     ($ty:ty) => {
+        #[allow(dead_code)]
+        impl $ty {
+            pub(crate) fn extract_raw_fd(&self) -> RawFd {
+                if self.dead.swap(true, Ordering::SeqCst) {
+                    panic!("handle was moved previously");
+                } else {
+                    self.fd
+                }
+            }
+        }
+
         impl FromRawFd for $ty {
             unsafe fn from_raw_fd(fd: RawFd) -> Self {
-                Self { fd }
+                Self {
+                    fd,
+                    dead: AtomicBool::new(false),
+                }
             }
         }
 
@@ -60,6 +77,14 @@ macro_rules! fd_impl {
         impl AsRawFd for $ty {
             fn as_raw_fd(&self) -> RawFd {
                 self.fd
+            }
+        }
+
+        impl Drop for $ty {
+            fn drop(&mut self) {
+                if !self.dead.load(Ordering::SeqCst) {
+                    unistd::close(self.fd).ok();
+                }
             }
         }
     };
@@ -137,7 +162,7 @@ impl RawReceiver {
             };
 
             if msg.bytes == 0 {
-                return Err(io::Error::new(io::ErrorKind::Interrupted, "couldn't read"));
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "could not read"));
             }
 
             pos += msg.bytes;
@@ -191,12 +216,6 @@ impl RawSender {
                 return Ok(pos);
             }
         }
-    }
-}
-
-impl Drop for RawReceiver {
-    fn drop(&mut self) {
-        unistd::close(self.fd).ok();
     }
 }
 

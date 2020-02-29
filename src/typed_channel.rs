@@ -1,13 +1,12 @@
 use std::fmt;
 use std::io;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
-use std::os::unix::net::UnixStream;
 use std::path::Path;
 
 use serde_::de::DeserializeOwned;
 use serde_::Serialize;
 
-use crate::raw_channel::{RawReceiver, RawSender};
+use crate::raw_channel::{raw_channel, RawReceiver, RawSender};
 use crate::serde::{deserialize, serialize};
 
 /// A typed receiver.
@@ -40,6 +39,13 @@ impl<T> fmt::Debug for Sender<T> {
 
 macro_rules! fd_impl {
     ($field:ident, $raw_ty:ty, $ty:ty) => {
+        #[allow(dead_code)]
+        impl<T> $ty {
+            pub(crate) fn extract_raw_fd(&self) -> RawFd {
+                self.$field.extract_raw_fd()
+            }
+        }
+
         impl<T: Serialize + DeserializeOwned> From<$raw_ty> for $ty {
             fn from(value: $raw_ty) -> Self {
                 Self {
@@ -77,13 +83,8 @@ fd_impl!(raw_sender, RawSender, Sender<T>);
 
 /// Creates a typed connected channel.
 pub fn channel<T: Serialize + DeserializeOwned>() -> io::Result<(Sender<T>, Receiver<T>)> {
-    let (sender, receiver) = UnixStream::pair()?;
-    unsafe {
-        Ok((
-            Sender::from_raw_fd(sender.into_raw_fd()),
-            Receiver::from_raw_fd(receiver.into_raw_fd()),
-        ))
-    }
+    let (sender, receiver) = raw_channel()?;
+    Ok((sender.into(), receiver.into()))
 }
 
 impl<T: Serialize + DeserializeOwned> Receiver<T> {
@@ -174,4 +175,42 @@ fn test_send_channel() {
 
     server.join().unwrap();
     client.join().unwrap();
+}
+
+#[test]
+fn test_multiple_fds() {
+    let (tx1, rx1) = channel().unwrap();
+    let (tx2, rx2) = channel::<()>().unwrap();
+    let (tx3, rx3) = channel::<()>().unwrap();
+
+    let a = std::thread::spawn(move || {
+        tx1.send((tx2, rx2, tx3, rx3)).unwrap();
+    });
+
+    let b = std::thread::spawn(move || {
+        let _channels = rx1.recv().unwrap();
+    });
+
+    a.join().unwrap();
+    b.join().unwrap();
+}
+
+#[test]
+fn test_conversion() {
+    let (tx, rx) = channel::<i32>().unwrap();
+    let raw_tx = tx.into_raw_sender();
+    let raw_rx = rx.into_raw_receiver();
+    let tx = Sender::<bool>::from(raw_tx);
+    let rx = Receiver::<bool>::from(raw_rx);
+
+    let a = std::thread::spawn(move || {
+        tx.send(true).unwrap();
+    });
+
+    let b = std::thread::spawn(move || {
+        assert_eq!(rx.recv().unwrap(), true);
+    });
+
+    a.join().unwrap();
+    b.join().unwrap();
 }
