@@ -15,9 +15,10 @@ autoexamples = true
 all-features = true
 
 [features]
-default = ["serde", "bootstrap", "bootstrap-simple"]
-serde = ["serde_", "bincode"]
+default = ["serde", "bincode", "bootstrap", "bootstrap-simple"]
+serde = ["serde_"]
 bootstrap = ["serde"]
+cbor = ["serde_cbor"]
 bootstrap-simple = ["bootstrap", "rand"]
 
 [dependencies]
@@ -25,6 +26,7 @@ libc = "0.2.67"
 nix = "0.17.0"
 serde_ = { package = "serde", version = "1.0.104", features = ["derive"], optional = true }
 bincode = { version = "1.2.1", optional = true }
+serde_cbor = { version = "0.11.1", optional = true }
 rand = { version = "0.7.3", optional = true }
 
 [[example]]

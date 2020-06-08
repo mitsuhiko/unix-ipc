@@ -135,37 +135,78 @@ pub fn serde_in_ipc_mode() -> bool {
     IPC_FDS.with(|x| !x.borrow().is_empty())
 }
 
-#[allow(clippy::boxed_local)]
-fn bincode_to_io_error(err: bincode::Error) -> io::Error {
-    match *err {
-        bincode::ErrorKind::Io(err) => err,
-        err => io::Error::new(io::ErrorKind::Other, err.to_string()),
+#[cfg(feature = "bincode")]
+mod format {
+    use super::{enter_ipc_mode, io, DeserializeOwned, RawFd, Serialize};
+
+    #[allow(clippy::boxed_local)]
+    fn bincode_to_io_error(err: bincode::Error) -> io::Error {
+        match *err {
+            bincode::ErrorKind::Io(err) => err,
+            err => io::Error::new(io::ErrorKind::Other, err.to_string()),
+        }
+    }
+
+    /// Serializes something for IPC communication.
+    ///
+    /// This uses bincode for serialization.  Because UNIX sockets require that
+    /// file descriptors are transmitted separately they are accumulated in a
+    /// separate buffer.
+    pub fn serialize<S: Serialize>(s: S) -> io::Result<(Vec<u8>, Vec<RawFd>)> {
+        let mut fds = Vec::new();
+        let mut out = Vec::new();
+        enter_ipc_mode(|| bincode::serialize_into(&mut out, &s), &mut fds)
+            .map_err(bincode_to_io_error)?;
+        Ok((out, fds))
+    }
+
+    /// Deserializes something for IPC communication.
+    ///
+    /// File descriptors need to be provided for deserialization if handleds are
+    /// involved.
+    pub fn deserialize<D: DeserializeOwned>(bytes: &[u8], fds: &[RawFd]) -> io::Result<D> {
+        let mut fds = fds.to_owned();
+        let result = enter_ipc_mode(|| bincode::deserialize(bytes), &mut fds)
+            .map_err(bincode_to_io_error)?;
+        Ok(result)
     }
 }
 
-/// Serializes something for IPC communication.
-///
-/// This uses bincode for serialization.  Because UNIX sockets require that
-/// file descriptors are transmitted separately they are accumulated in a
-/// separate buffer.
-pub fn serialize<S: Serialize>(s: S) -> io::Result<(Vec<u8>, Vec<RawFd>)> {
-    let mut fds = Vec::new();
-    let mut out = Vec::new();
-    enter_ipc_mode(|| bincode::serialize_into(&mut out, &s), &mut fds)
-        .map_err(bincode_to_io_error)?;
-    Ok((out, fds))
+#[cfg(feature = "cbor")]
+mod format {
+    use super::{enter_ipc_mode, io, DeserializeOwned, RawFd, Serialize};
+
+    fn cbor_to_io_error(err: serde_cbor::Error) -> io::Error {
+        // cbor doesn't provide a way to move the io::Error out of its wrapper.
+        io::Error::new(io::ErrorKind::Other, err.to_string())
+    }
+
+    /// Serializes something for IPC communication.
+    ///
+    /// This uses bincode for serialization.  Because UNIX sockets require that
+    /// file descriptors are transmitted separately they are accumulated in a
+    /// separate buffer.
+    pub fn serialize<S: Serialize>(s: S) -> io::Result<(Vec<u8>, Vec<RawFd>)> {
+        let mut fds = Vec::new();
+        let mut out = Vec::new();
+        enter_ipc_mode(|| serde_cbor::to_writer(&mut out, &s), &mut fds)
+            .map_err(cbor_to_io_error)?;
+        Ok((out, fds))
+    }
+
+    /// Deserializes something for IPC communication.
+    ///
+    /// File descriptors need to be provided for deserialization if handleds are
+    /// involved.
+    pub fn deserialize<D: DeserializeOwned>(bytes: &[u8], fds: &[RawFd]) -> io::Result<D> {
+        let mut fds = fds.to_owned();
+        let result =
+            enter_ipc_mode(|| serde_cbor::from_slice(bytes), &mut fds).map_err(cbor_to_io_error)?;
+        Ok(result)
+    }
 }
 
-/// Deserializes something for IPC communication.
-///
-/// File descriptors need to be provided for deserialization if handleds are
-/// involved.
-pub fn deserialize<D: DeserializeOwned>(bytes: &[u8], fds: &[RawFd]) -> io::Result<D> {
-    let mut fds = fds.to_owned();
-    let result =
-        enter_ipc_mode(|| bincode::deserialize(bytes), &mut fds).map_err(bincode_to_io_error)?;
-    Ok(result)
-}
+pub use format::{deserialize, serialize};
 
 macro_rules! implement_handle_serialization {
     ($ty:ty) => {
