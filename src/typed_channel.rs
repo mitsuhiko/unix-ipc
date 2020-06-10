@@ -7,21 +7,28 @@ use serde_::de::DeserializeOwned;
 use serde_::Serialize;
 
 use crate::raw_channel::{raw_channel, RawReceiver, RawSender};
-use crate::serde::{deserialize, serialize};
+use crate::serde::{Bincode, Cbor, Format};
+
+pub type BincodeSender<T> = Sender<Bincode, T>;
+pub type CborSender<T> = Sender<Cbor, T>;
+pub type BincodeReceiver<T> = Receiver<Bincode, T>;
+pub type CborReceiver<T> = Receiver<Cbor, T>;
 
 /// A typed receiver.
-pub struct Receiver<T> {
+pub struct Receiver<F, T> {
     raw_receiver: RawReceiver,
+    _format: std::marker::PhantomData<F>,
     _marker: std::marker::PhantomData<T>,
 }
 
 /// A typed sender.
-pub struct Sender<T> {
+pub struct Sender<F, T> {
     raw_sender: RawSender,
+    _format: std::marker::PhantomData<F>,
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<T> fmt::Debug for Receiver<T> {
+impl<F, T> fmt::Debug for Receiver<F, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Receiver")
             .field("fd", &self.as_raw_fd())
@@ -29,7 +36,7 @@ impl<T> fmt::Debug for Receiver<T> {
     }
 }
 
-impl<T> fmt::Debug for Sender<T> {
+impl<F, T> fmt::Debug for Sender<F, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Sender")
             .field("fd", &self.as_raw_fd())
@@ -40,37 +47,39 @@ impl<T> fmt::Debug for Sender<T> {
 macro_rules! fd_impl {
     ($field:ident, $raw_ty:ty, $ty:ty) => {
         #[allow(dead_code)]
-        impl<T> $ty {
+        impl<F, T> $ty {
             pub(crate) fn extract_raw_fd(&self) -> RawFd {
                 self.$field.extract_raw_fd()
             }
         }
 
-        impl<T: Serialize + DeserializeOwned> From<$raw_ty> for $ty {
+        impl<F, T: Serialize + DeserializeOwned> From<$raw_ty> for $ty {
             fn from(value: $raw_ty) -> Self {
                 Self {
                     $field: value,
+                    _format: std::marker::PhantomData,
                     _marker: std::marker::PhantomData,
                 }
             }
         }
 
-        impl<T: Serialize + DeserializeOwned> FromRawFd for $ty {
+        impl<F, T: Serialize + DeserializeOwned> FromRawFd for $ty {
             unsafe fn from_raw_fd(fd: RawFd) -> Self {
                 Self {
                     $field: FromRawFd::from_raw_fd(fd),
+                    _format: std::marker::PhantomData,
                     _marker: std::marker::PhantomData,
                 }
             }
         }
 
-        impl<T> IntoRawFd for $ty {
+        impl<F, T> IntoRawFd for $ty {
             fn into_raw_fd(self) -> RawFd {
                 self.$field.into_raw_fd()
             }
         }
 
-        impl<T> AsRawFd for $ty {
+        impl<F, T> AsRawFd for $ty {
             fn as_raw_fd(&self) -> RawFd {
                 self.$field.as_raw_fd()
             }
@@ -78,18 +87,18 @@ macro_rules! fd_impl {
     };
 }
 
-fd_impl!(raw_receiver, RawReceiver, Receiver<T>);
-fd_impl!(raw_sender, RawSender, Sender<T>);
+fd_impl!(raw_receiver, RawReceiver, Receiver<F, T>);
+fd_impl!(raw_sender, RawSender, Sender<F, T>);
 
 /// Creates a typed connected channel.
-pub fn channel<T: Serialize + DeserializeOwned>() -> io::Result<(Sender<T>, Receiver<T>)> {
+pub fn channel<F, T: Serialize + DeserializeOwned>() -> io::Result<(Sender<F, T>, Receiver<F, T>)> {
     let (sender, receiver) = raw_channel()?;
     Ok((sender.into(), receiver.into()))
 }
 
-impl<T: Serialize + DeserializeOwned> Receiver<T> {
+impl<F: Format, T: Serialize + DeserializeOwned> Receiver<F, T> {
     /// Connects a receiver to a named unix socket.
-    pub fn connect<P: AsRef<Path>>(p: P) -> io::Result<Receiver<T>> {
+    pub fn connect<P: AsRef<Path>>(p: P) -> io::Result<Receiver<F, T>> {
         RawReceiver::connect(p).map(Into::into)
     }
 
@@ -101,11 +110,11 @@ impl<T: Serialize + DeserializeOwned> Receiver<T> {
     /// Receives a structured message from the socket.
     pub fn recv(&self) -> io::Result<T> {
         let (buf, fds) = self.raw_receiver.recv()?;
-        deserialize::<(T, bool)>(&buf, fds.as_deref().unwrap_or_default()).map(|x| x.0)
+        F::deserialize::<(T, bool)>(&buf, fds.as_deref().unwrap_or_default()).map(|x| x.0)
     }
 }
 
-impl<T: Serialize + DeserializeOwned> Sender<T> {
+impl<F: Format, T: Serialize + DeserializeOwned> Sender<F, T> {
     /// Converts the typed sender into a raw one.
     pub fn into_raw_sender(self) -> RawSender {
         self.raw_sender
@@ -115,7 +124,7 @@ impl<T: Serialize + DeserializeOwned> Sender<T> {
     pub fn send(&self, s: T) -> io::Result<()> {
         // we always serialize a dummy bool at the end so that the message
         // will not be empty because of zero sized types.
-        let (payload, fds) = serialize((s, true))?;
+        let (payload, fds) = F::serialize((s, true))?;
         self.raw_sender.send(&payload, &fds)?;
         Ok(())
     }
@@ -128,7 +137,7 @@ fn test_basic() {
 
     let f = Handle::from(std::fs::File::open("src/serde.rs").unwrap());
 
-    let (tx, rx) = channel().unwrap();
+    let (tx, rx) = channel::<Bincode, _>().unwrap();
 
     let server = std::thread::spawn(move || {
         tx.send(f).unwrap();
@@ -154,8 +163,8 @@ fn test_send_channel() {
     use std::fs::File;
     use std::io::Read;
 
-    let (tx, rx) = channel().unwrap();
-    let (sender, receiver) = channel::<Handle<File>>().unwrap();
+    let (tx, rx) = channel::<Bincode, _>().unwrap();
+    let (sender, receiver) = channel::<Bincode, Handle<File>>().unwrap();
 
     let server = std::thread::spawn(move || {
         tx.send(sender).unwrap();
@@ -181,9 +190,9 @@ fn test_send_channel() {
 
 #[test]
 fn test_multiple_fds() {
-    let (tx1, rx1) = channel().unwrap();
-    let (tx2, rx2) = channel::<()>().unwrap();
-    let (tx3, rx3) = channel::<()>().unwrap();
+    let (tx1, rx1) = channel::<Bincode, _>().unwrap();
+    let (tx2, rx2) = channel::<Bincode, ()>().unwrap();
+    let (tx3, rx3) = channel::<Bincode, ()>().unwrap();
 
     let a = std::thread::spawn(move || {
         tx1.send((tx2, rx2, tx3, rx3)).unwrap();
@@ -199,11 +208,11 @@ fn test_multiple_fds() {
 
 #[test]
 fn test_conversion() {
-    let (tx, rx) = channel::<i32>().unwrap();
+    let (tx, rx) = channel::<Bincode, i32>().unwrap();
     let raw_tx = tx.into_raw_sender();
     let raw_rx = rx.into_raw_receiver();
-    let tx = Sender::<bool>::from(raw_tx);
-    let rx = Receiver::<bool>::from(raw_rx);
+    let tx = BincodeSender::<bool>::from(raw_tx);
+    let rx = BincodeReceiver::<bool>::from(raw_rx);
 
     let a = std::thread::spawn(move || {
         tx.send(true).unwrap();
@@ -219,7 +228,7 @@ fn test_conversion() {
 
 #[test]
 fn test_zero_sized_type() {
-    let (tx, rx) = channel::<()>().unwrap();
+    let (tx, rx) = channel::<Bincode, ()>().unwrap();
 
     let a = std::thread::spawn(move || {
         tx.send(()).unwrap();

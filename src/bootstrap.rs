@@ -7,6 +7,7 @@ use std::os::unix::io::{FromRawFd, IntoRawFd};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 
+use crate::serde::Format;
 use crate::typed_channel::Sender;
 
 /// A bootstrap helper.
@@ -15,16 +16,16 @@ use crate::typed_channel::Sender;
 /// that a [`Receiver`](struct.Receiver.html) can connect to it.  It
 /// lets you send one or more messages to the connected receiver.
 #[derive(Debug)]
-pub struct Bootstrapper<T> {
+pub struct Bootstrapper<F, T> {
     listener: UnixListener,
-    sender: RefCell<Option<Sender<T>>>,
+    sender: RefCell<Option<Sender<F, T>>>,
     path: PathBuf,
 }
 
-impl<T: Serialize + DeserializeOwned> Bootstrapper<T> {
+impl<F: Format, T: Serialize + DeserializeOwned> Bootstrapper<F, T> {
     /// Creates a bootstrapper at a random socket in `/tmp`.
     #[cfg(feature = "bootstrap-simple")]
-    pub fn new() -> io::Result<Bootstrapper<T>> {
+    pub fn new() -> io::Result<Bootstrapper<F, T>> {
         use rand::{thread_rng, RngCore};
         use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -40,7 +41,7 @@ impl<T: Serialize + DeserializeOwned> Bootstrapper<T> {
     }
 
     /// Creates a bootstrapper at a specific socket path.
-    pub fn bind<P: AsRef<Path>>(p: P) -> io::Result<Bootstrapper<T>> {
+    pub fn bind<P: AsRef<Path>>(p: P) -> io::Result<Bootstrapper<F, T>> {
         fs::remove_file(&p).ok();
         let listener = UnixListener::bind(&p)?;
         Ok(Bootstrapper {
@@ -69,7 +70,7 @@ impl<T: Serialize + DeserializeOwned> Bootstrapper<T> {
     }
 }
 
-impl<T> Drop for Bootstrapper<T> {
+impl<F, T> Drop for Bootstrapper<F, T> {
     fn drop(&mut self) {
         fs::remove_file(&self.path).ok();
     }
@@ -77,9 +78,10 @@ impl<T> Drop for Bootstrapper<T> {
 
 #[test]
 fn test_bootstrap() {
-    use crate::Receiver;
+    use crate::Bincode;
+    use crate::BincodeReceiver as Receiver;
 
-    let bootstrapper = Bootstrapper::new().unwrap();
+    let bootstrapper: Bootstrapper<Bincode, _> = Bootstrapper::new().unwrap();
     let path = bootstrapper.path().to_owned();
 
     let handle = std::thread::spawn(move || {
@@ -97,11 +99,11 @@ fn test_bootstrap() {
 
 #[test]
 fn test_bootstrap_reverse() {
-    use crate::{channel, Receiver};
+    use crate::{channel, Bincode, BincodeReceiver as Receiver, BincodeSender as Sender};
 
-    let bootstrapper = Bootstrapper::new().unwrap();
+    let bootstrapper: Bootstrapper<Bincode, _> = Bootstrapper::new().unwrap();
     let path = bootstrapper.path().to_owned();
-    let (tx, rx) = channel::<u32>().unwrap();
+    let (tx, rx) = channel::<Bincode, u32>().unwrap();
 
     std::thread::spawn(move || {
         let receiver = Receiver::<Sender<u32>>::connect(path).unwrap();

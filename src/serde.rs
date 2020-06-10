@@ -11,6 +11,15 @@ thread_local! {
     static IPC_FDS: RefCell<Vec<Vec<RawFd>>> = RefCell::new(Vec::new());
 }
 
+pub trait Format {
+    fn serialize<S: Serialize>(s: S) -> io::Result<(Vec<u8>, Vec<RawFd>)>;
+    fn deserialize<D: DeserializeOwned>(bytes: &[u8], fds: &[RawFd]) -> io::Result<D>;
+}
+
+pub struct Bincode;
+
+pub struct Cbor;
+
 /// Can transfer a unix file handle across processes.
 ///
 /// The basic requirement is that you have an object that can be converted
@@ -136,23 +145,13 @@ pub fn serde_in_ipc_mode() -> bool {
 }
 
 #[cfg(feature = "bincode")]
-mod format {
-    use super::{enter_ipc_mode, io, DeserializeOwned, RawFd, Serialize};
-
-    #[allow(clippy::boxed_local)]
-    fn bincode_to_io_error(err: bincode::Error) -> io::Error {
-        match *err {
-            bincode::ErrorKind::Io(err) => err,
-            err => io::Error::new(io::ErrorKind::Other, err.to_string()),
-        }
-    }
-
+impl Format for Bincode {
     /// Serializes something for IPC communication.
     ///
     /// This uses bincode for serialization.  Because UNIX sockets require that
     /// file descriptors are transmitted separately they are accumulated in a
     /// separate buffer.
-    pub fn serialize<S: Serialize>(s: S) -> io::Result<(Vec<u8>, Vec<RawFd>)> {
+    fn serialize<S: Serialize>(s: S) -> io::Result<(Vec<u8>, Vec<RawFd>)> {
         let mut fds = Vec::new();
         let mut out = Vec::new();
         enter_ipc_mode(|| bincode::serialize_into(&mut out, &s), &mut fds)
@@ -162,9 +161,9 @@ mod format {
 
     /// Deserializes something for IPC communication.
     ///
-    /// File descriptors need to be provided for deserialization if handleds are
+    /// File descriptors need to be provided for deserialization if handles are
     /// involved.
-    pub fn deserialize<D: DeserializeOwned>(bytes: &[u8], fds: &[RawFd]) -> io::Result<D> {
+    fn deserialize<D: DeserializeOwned>(bytes: &[u8], fds: &[RawFd]) -> io::Result<D> {
         let mut fds = fds.to_owned();
         let result = enter_ipc_mode(|| bincode::deserialize(bytes), &mut fds)
             .map_err(bincode_to_io_error)?;
@@ -172,21 +171,23 @@ mod format {
     }
 }
 
-#[cfg(feature = "cbor")]
-mod format {
-    use super::{enter_ipc_mode, io, DeserializeOwned, RawFd, Serialize};
-
-    fn cbor_to_io_error(err: serde_cbor::Error) -> io::Error {
-        // cbor doesn't provide a way to move the io::Error out of its wrapper.
-        io::Error::new(io::ErrorKind::Other, err.to_string())
+#[cfg(feature = "bincode")]
+#[allow(clippy::boxed_local)]
+fn bincode_to_io_error(err: bincode::Error) -> io::Error {
+    match *err {
+        bincode::ErrorKind::Io(err) => err,
+        err => io::Error::new(io::ErrorKind::Other, err.to_string()),
     }
+}
 
+#[cfg(feature = "cbor")]
+impl Format for Cbor {
     /// Serializes something for IPC communication.
     ///
-    /// This uses bincode for serialization.  Because UNIX sockets require that
+    /// This uses CBOR for serialization.  Because UNIX sockets require that
     /// file descriptors are transmitted separately they are accumulated in a
     /// separate buffer.
-    pub fn serialize<S: Serialize>(s: S) -> io::Result<(Vec<u8>, Vec<RawFd>)> {
+    fn serialize<S: Serialize>(s: S) -> io::Result<(Vec<u8>, Vec<RawFd>)> {
         let mut fds = Vec::new();
         let mut out = Vec::new();
         enter_ipc_mode(|| serde_cbor::to_writer(&mut out, &s), &mut fds)
@@ -196,9 +197,9 @@ mod format {
 
     /// Deserializes something for IPC communication.
     ///
-    /// File descriptors need to be provided for deserialization if handleds are
+    /// File descriptors need to be provided for deserialization if handles are
     /// involved.
-    pub fn deserialize<D: DeserializeOwned>(bytes: &[u8], fds: &[RawFd]) -> io::Result<D> {
+    fn deserialize<D: DeserializeOwned>(bytes: &[u8], fds: &[RawFd]) -> io::Result<D> {
         let mut fds = fds.to_owned();
         let result =
             enter_ipc_mode(|| serde_cbor::from_slice(bytes), &mut fds).map_err(cbor_to_io_error)?;
@@ -206,7 +207,11 @@ mod format {
     }
 }
 
-pub use format::{deserialize, serialize};
+#[cfg(feature = "cbor")]
+fn cbor_to_io_error(err: serde_cbor::Error) -> io::Error {
+    // cbor doesn't provide a way to move the io::Error out of its wrapper.
+    io::Error::new(io::ErrorKind::Other, err.to_string())
+}
 
 macro_rules! implement_handle_serialization {
     ($ty:ty) => {
@@ -239,7 +244,7 @@ implement_handle_serialization!(crate::RawReceiver);
 
 macro_rules! implement_typed_handle_serialization {
     ($ty:ty) => {
-        impl<T: Serialize + DeserializeOwned> $crate::_serde_ref::Serialize for $ty {
+        impl<F, T: Serialize + DeserializeOwned> $crate::_serde_ref::Serialize for $ty {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where
                 S: $crate::_serde_ref::ser::Serializer,
@@ -250,7 +255,7 @@ macro_rules! implement_typed_handle_serialization {
                 )
             }
         }
-        impl<'de, T: Serialize + DeserializeOwned> Deserialize<'de> for $ty {
+        impl<'de, F, T: Serialize + DeserializeOwned> Deserialize<'de> for $ty {
             fn deserialize<D>(deserializer: D) -> Result<$ty, D::Error>
             where
                 D: $crate::_serde_ref::de::Deserializer<'de>,
@@ -263,16 +268,30 @@ macro_rules! implement_typed_handle_serialization {
     };
 }
 
-implement_typed_handle_serialization!(crate::Sender<T>);
-implement_typed_handle_serialization!(crate::Receiver<T>);
+implement_typed_handle_serialization!(crate::Sender<F, T>);
+implement_typed_handle_serialization!(crate::Receiver<F, T>);
 
+#[cfg(feature = "bincode")]
 #[test]
-fn test_basic() {
+fn test_basic_bincode() {
     use std::io::Read;
     let f = std::fs::File::open("src/serde.rs").unwrap();
     let handle = Handle::from(f);
-    let (bytes, fds) = serialize(handle).unwrap();
-    let f2: Handle<std::fs::File> = deserialize(&bytes, &fds).unwrap();
+    let (bytes, fds) = Bincode::serialize(handle).unwrap();
+    let f2: Handle<std::fs::File> = Bincode::deserialize(&bytes, &fds).unwrap();
+    let mut out = Vec::new();
+    f2.into_inner().read_to_end(&mut out).unwrap();
+    assert!(out.len() > 100);
+}
+
+#[cfg(feature = "cbor")]
+#[test]
+fn test_basic_cbor() {
+    use std::io::Read;
+    let f = std::fs::File::open("src/serde.rs").unwrap();
+    let handle = Handle::from(f);
+    let (bytes, fds) = Cbor::serialize(handle).unwrap();
+    let f2: Handle<std::fs::File> = Cbor::deserialize(&bytes, &fds).unwrap();
     let mut out = Vec::new();
     f2.into_inner().read_to_end(&mut out).unwrap();
     assert!(out.len() > 100);
