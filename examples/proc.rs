@@ -1,7 +1,9 @@
 use serde_::{Deserialize, Serialize};
 use std::env;
 use std::process;
-use unix_ipc::{channel, Bootstrapper, Receiver, Sender};
+use unix_ipc::{
+    channel, Bincode, BincodeReceiver as Receiver, BincodeSender as Sender, Bootstrapper,
+};
 
 const ENV_VAR: &str = "PROC_CONNECT_TO";
 
@@ -25,7 +27,7 @@ fn main() {
             }
         }
     } else {
-        let bootstrapper = Bootstrapper::new().unwrap();
+        let bootstrapper: Bootstrapper<Bincode, _> = Bootstrapper::new().unwrap();
         let mut child = process::Command::new(env::current_exe().unwrap())
             .env(ENV_VAR, bootstrapper.path())
             .spawn()

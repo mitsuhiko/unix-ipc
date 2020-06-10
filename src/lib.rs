@@ -23,7 +23,7 @@
 //! # use ::serde_ as serde;
 //! use std::env;
 //! use std::process;
-//! use unix_ipc::{channel, Bootstrapper, Receiver, Sender};
+//! use unix_ipc::{channel, Bootstrapper, BincodeReceiver as Receiver, BincodeSender as Sender, Bincode};
 //! use serde::{Deserialize, Serialize};
 //!
 //! const ENV_VAR: &str = "PROC_CONNECT_TO";
@@ -46,7 +46,7 @@
 //!         }
 //!     }
 //! } else {
-//!     let bootstrapper = Bootstrapper::new().unwrap();
+//!     let bootstrapper: Bootstrapper<Bincode, _> = Bootstrapper::new().unwrap();
 //!     let mut child = process::Command::new(env::current_exe().unwrap())
 //!         .env(ENV_VAR, bootstrapper.path())
 //!         .spawn()

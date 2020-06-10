@@ -1,5 +1,7 @@
 use serde_::{Deserialize, Serialize};
-use unix_ipc::{channel, Bootstrapper, Receiver, Sender};
+use unix_ipc::{
+    channel, Bincode, BincodeReceiver as Receiver, BincodeSender as Sender, Bootstrapper,
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(crate = "serde_")]
@@ -9,7 +11,7 @@ pub enum Task {
 }
 
 fn main() {
-    let bootstrapper = Bootstrapper::new().unwrap();
+    let bootstrapper: Bootstrapper<Bincode, _> = Bootstrapper::new().unwrap();
     let path = bootstrapper.path().to_owned();
 
     std::thread::spawn(move || {
