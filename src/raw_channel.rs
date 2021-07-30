@@ -99,14 +99,6 @@ macro_rules! fd_impl {
 fd_impl!(RawReceiver);
 fd_impl!(RawSender);
 
-fn nix_as_io_error(err: nix::Error) -> io::Error {
-    if let Some(errno) = err.as_errno() {
-        io::Error::from(errno)
-    } else {
-        io::Error::new(io::ErrorKind::Other, err.to_string())
-    }
-}
-
 impl RawReceiver {
     /// Connects a receiver to a named unix socket.
     pub fn connect<P: AsRef<Path>>(p: P) -> io::Result<RawReceiver> {
@@ -147,8 +139,7 @@ impl RawReceiver {
                 unsafe { CMSG_SPACE(mem::size_of::<RawFd>() as c_uint) * fd_count as u32 };
             let mut cmsgspace = vec![0u8; msgspace_size as usize];
 
-            let msg =
-                recvmsg(self.fd, &iov, Some(&mut cmsgspace), MSG_FLAGS).map_err(nix_as_io_error)?;
+            let msg = recvmsg(self.fd, &iov, Some(&mut cmsgspace), MSG_FLAGS)?;
 
             for cmsg in msg.cmsgs() {
                 if let ControlMessageOwned::ScmRights(fds) = cmsg {
@@ -217,10 +208,9 @@ impl RawSender {
                     &[ControlMessage::ScmRights(fds)],
                     MsgFlags::empty(),
                     None,
-                )
-                .map_err(nix_as_io_error)?
+                )?
             } else {
-                sendmsg(self.fd, &iov, &[], MsgFlags::empty(), None).map_err(nix_as_io_error)?
+                sendmsg(self.fd, &iov, &[], MsgFlags::empty(), None)?
             };
             if sent == 0 {
                 return Err(io::Error::new(io::ErrorKind::WriteZero, "could not send"));
