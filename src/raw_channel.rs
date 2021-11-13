@@ -88,9 +88,7 @@ macro_rules! fd_impl {
 
         impl Drop for $ty {
             fn drop(&mut self) {
-                if !self.dead.load(Ordering::SeqCst) {
-                    unistd::close(self.fd).ok();
-                }
+                unistd::close(self.fd).ok();
             }
         }
     };

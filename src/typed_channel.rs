@@ -115,7 +115,7 @@ impl<T: Serialize + DeserializeOwned> Sender<T> {
     pub fn send(&self, s: T) -> io::Result<()> {
         // we always serialize a dummy bool at the end so that the message
         // will not be empty because of zero sized types.
-        let (payload, fds) = serialize((s, true))?;
+        let (payload, fds) = serialize((&s, true))?;
         self.raw_sender.send(&payload, &fds)?;
         Ok(())
     }
@@ -231,4 +231,20 @@ fn test_zero_sized_type() {
 
     a.join().unwrap();
     b.join().unwrap();
+}
+
+#[test]
+fn test_many_nested() {
+    for _ in 0..2000 {
+        let (tx, rx) = channel().unwrap();
+        let (tx2, rx2) = channel().unwrap();
+
+        tx.send(tx2).unwrap();
+
+        let recv = rx.recv().unwrap();
+
+        recv.send(1).unwrap();
+
+        rx2.recv().unwrap();
+    }
 }
