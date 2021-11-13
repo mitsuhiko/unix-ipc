@@ -40,7 +40,3 @@ testall:
 	cargo test --all-features
 	cargo test --no-default-features --tests
 .PHONY: testall
-
-readme:
-	cargo readme | perl -p -e "s/\]\(([^\/]+)\)/](https:\/\/docs.rs\/unix-ipc\/latest\/unix-ipc\/\\1)/" > README.md
-.PHONY: readme

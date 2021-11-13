@@ -8,8 +8,9 @@ between processes.
 
 This uses [serde](https://serde.rs/) to serialize data over unix sockets
 via [bincode](https://github.com/servo/bincode).  Thanks to the
-[`Handle`](https://docs.rs/unix-ipc/latest/unix-ipc/struct.Handle.html) abstraction you can also send any object
-across that is convertable into a unix file handle.
+[`Handle`](https://docs.rs/unix-ipc/latest/unix_ipc/struct.Handle.html)
+abstraction you can also send any object across that is convertable into a unix
+file handle.
 
 The way this works under the hood is that during serialization and
 deserialization encountered file descriptors are tracked.  They are then
@@ -58,16 +59,5 @@ if let Ok(path) = env::var(ENV_VAR) {
     bootstrapper.send(Task::Shutdown).unwrap();
 }
 ```
-
-## Feature Flags
-
-All features are enabled by default but a lot can be turned off to
-cut down on dependencies.  With all default features enabled only
-the raw types are available.
-
-* `serde`: enables serialization and deserialization.
-* `bootstrap`: adds the `Bootstrapper` type.
-* `bootstrap-simple`: adds the default `new` constructor to the
-  bootstrapper.
 
 License: MIT/Apache-2.0
