@@ -42,5 +42,5 @@ testall:
 .PHONY: testall
 
 readme:
-	cargo readme | perl -p -e "s/\]\(([^\/]+)\)/](https:\/\/docs.rs\/unix-ipc\/latest\/unix-ipc\/\\1)/" > README.md
+	cargo readme | perl -p -e "s/\]\(([^\/]+)\)/](https:\/\/docs.rs\/unix-ipc\/latest\/unix_ipc\/\\1)/" > README.md
 .PHONY: readme
