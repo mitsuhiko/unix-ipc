@@ -98,6 +98,18 @@ impl<T: Serialize + DeserializeOwned> Receiver<T> {
         self.raw_receiver
     }
 
+    /// Receives a structured message from the socket if there is a message available.
+    pub fn try_recv(&self) -> io::Result<Option<T>> {
+        let res = self.raw_receiver.try_recv()?;
+        if let Some((buf, fds)) = res {
+            Ok(Some(
+                deserialize::<(T, bool)>(&buf, fds.as_deref().unwrap_or_default()).map(|x| x.0)?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Receives a structured message from the socket.
     pub fn recv(&self) -> io::Result<T> {
         let (buf, fds) = self.raw_receiver.recv()?;
@@ -247,4 +259,15 @@ fn test_many_nested() {
 
         rx2.recv().unwrap();
     }
+}
+
+#[test]
+fn test_try_recv() {
+    let (tx, rx) = channel().unwrap();
+
+    assert!(rx.try_recv().unwrap().is_none());
+
+    tx.send(1_f32).unwrap();
+
+    assert!(rx.try_recv().unwrap().is_some())
 }
