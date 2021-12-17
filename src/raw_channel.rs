@@ -104,10 +104,24 @@ impl RawReceiver {
         unsafe { Ok(RawReceiver::from_raw_fd(sock.into_raw_fd())) }
     }
 
-    /// Receives raw bytes from the socket.
     pub fn recv(&self) -> io::Result<(Vec<u8>, Option<Vec<RawFd>>)> {
+        self.recv_impl(true)
+    }
+
+    pub fn try_recv(&self) -> io::Result<Option<(Vec<u8>, Option<Vec<RawFd>>)>> {
+        let res = self.recv_impl(false);
+
+        match res {
+            Ok(res) => Ok(Some(res)),
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Receives raw bytes from the socket.
+    fn recv_impl(&self, blocking: bool) -> io::Result<(Vec<u8>, Option<Vec<RawFd>>)> {
         let mut header = MsgHeader::default();
-        self.recv_impl(
+        self.recv_part(
             unsafe {
                 slice::from_raw_parts_mut(
                     (&mut header as *mut _) as *mut u8,
@@ -115,17 +129,20 @@ impl RawReceiver {
                 )
             },
             0,
+            blocking,
         )?;
 
         let mut buf = vec![0u8; header.payload_len as usize];
-        let (_, fds) = self.recv_impl(&mut buf, header.fd_count as usize)?;
+        // Once the header is received, the body must always follow
+        let (_, fds) = self.recv_part(&mut buf, header.fd_count as usize, true)?;
         Ok((buf, fds))
     }
 
-    fn recv_impl(
+    fn recv_part(
         &self,
         buf: &mut [u8],
         fd_count: usize,
+        blocking: bool,
     ) -> io::Result<(usize, Option<Vec<RawFd>>)> {
         let mut pos = 0;
         let mut fds = None;
@@ -137,7 +154,13 @@ impl RawReceiver {
                 unsafe { CMSG_SPACE(mem::size_of::<RawFd>() as c_uint) * fd_count as u32 };
             let mut cmsgspace = vec![0u8; msgspace_size as usize];
 
-            let msg = recvmsg(self.fd, &iov, Some(&mut cmsgspace), MSG_FLAGS)?;
+            let flags = if blocking {
+                MSG_FLAGS
+            } else {
+                MSG_FLAGS | MsgFlags::MSG_DONTWAIT
+            };
+
+            let msg = recvmsg(self.fd, &iov, Some(&mut cmsgspace), flags)?;
 
             for cmsg in msg.cmsgs() {
                 if let ControlMessageOwned::ScmRights(fds) = cmsg {
